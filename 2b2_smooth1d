@@ -1,0 +1,38 @@
+function smoothedVector = gaussian_smooth_1d(inputVector, sigma)
+% GAUSSIAN_SMOOTH_1D Apply Gaussian smoothing to a 1D vector
+%
+% Inputs:
+%   inputVector - 1D vector to be smoothed
+%   sigma       - Standard deviation of Gaussian kernel (in samples)
+%
+% Output:
+%   smoothedVector - Smoothed version of input vector
+%
+% Example:
+%   noisyData = randn(100,1);
+%   smoothData = gaussian_smooth_1d(noisyData, 5);
+
+% Validate inputs
+validateattributes(inputVector, {'numeric'}, {'vector'}, mfilename, 'inputVector');
+validateattributes(sigma, {'numeric'}, {'scalar', 'positive'}, mfilename, 'sigma');
+
+% Create Gaussian filter kernel
+nPoints = length(inputVector);
+centerPoint = floor(nPoints/2) + 1;
+x = (1:nPoints) - centerPoint;
+gaussianKernel = exp(-0.5 * (x/(nPoints*sigma)).^2);
+
+% Ensure kernel orientation matches input
+if isrow(inputVector)
+    gaussianKernel = gaussianKernel.';
+end
+
+% Apply Fourier domain filtering
+freqDomain = fft(inputVector);
+filtered = freqDomain .* fftshift(gaussianKernel);
+smoothedVector = ifft(filtered);
+
+% Return real part if input was real
+if isreal(inputVector)
+    smoothedVector = real(smoothedVector);
+end
