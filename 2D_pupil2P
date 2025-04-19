@@ -1,0 +1,73 @@
+function [rawPupil, smoothedPupil, triggerSignal] = analyze_pupil_dynamics(imageFolder)
+% ANALYZE_PUPIL_DYNAMICS Track pupil size changes from image sequence
+%
+% Inputs:
+%   imageFolder - Path to folder containing TIFF images
+%
+% Outputs:
+%   rawPupil - Raw pupil size measurements
+%   smoothedPupil - Filtered pupil signal
+%   triggerSignal - Synchronization trigger signal
+
+%% Initialize and load files
+imageFiles = natsortfiles(dir(fullfile(imageFolder, '*.tif')));
+
+%% Select ROI interactively
+sampleFramePath = fullfile(imageFolder, imageFiles(ceil(length(imageFiles)/2)).name);
+tiffObj = Tiff(sampleFramePath, 'r');
+frameData = im2uint8(read(tiffObj));
+
+fig = figure('Name', 'Select Pupil ROI', 'NumberTitle', 'off');
+imshow(frameData);
+title('Draw ellipse around pupil region');
+pupilROI = drawellipse('Color', 'r', 'LineWidth', 2);
+pause(0.1); % Ensure UI updates
+disp('Adjust ROI as needed, then press any key to continue');
+pause;
+close(fig);
+
+pupilMask = createMask(pupilROI);
+
+%% Process image sequence
+nFrames = length(imageFiles);
+rawPupil = zeros(1, nFrames-2); % Initialize array
+
+for k = 3:nFrames
+    framePath = fullfile(imageFolder, imageFiles(k).name);
+    tiffObj = Tiff(framePath, 'r');
+    frameData = im2uint8(read(tiffObj));
+    
+    if max(frameData(:)) > 5 % Skip black frames
+        % Threshold and mask image
+        thresholded = frameData;
+        thresholded(frameData < 25) = 255;
+        thresholded(~pupilMask) = 0;
+        
+        % Calculate pupil area
+        pupilPixels = thresholded(thresholded >= 1);
+        rawPupil(k-2) = sum(pupilPixels);
+    end
+end
+
+%% Process pupil signal
+% Normalize and smooth
+rawPupil = normalize_to_range(rawPupil);
+smoothedPupil = real(normalize_to_range(smooth_gaussian_fft(rawPupil, 5)));
+
+%% Handle trigger synchronization
+useManualTrigger = input('Detect trigger manually? (1=yes, 0=no): ');
+if useManualTrigger == 1
+    triggerSignal = detect_trigger_signal(imageFolder);
+    triggerSignal(triggerSignal == 0) = NaN;
+    
+    % Apply trigger to signals
+    rawPupil = rawPupil .* triggerSignal;
+    rawPupil = rawPupil(~isnan(rawPupil));
+    
+    smoothedPupil = smoothedPupil .* triggerSignal;
+    smoothedPupil = smoothedPupil(~isnan(smoothedPupil));
+else
+    triggerSignal = ones(size(rawPupil));
+    disp('Using default trigger signal');
+end
+end
