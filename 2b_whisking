@@ -1,1 +1,98 @@
+function [whisker_raw_pad, whisker_smooth_pad, whisker_raw_long, whisker_smooth_long] = ...
+    analyze_whisker_movement(image_folder, output_folder, animal_id, experiment_date, session_id)
+% ANALYZE_WHISKER_MOVEMENT Quantifies whisker motion from image sequence
+%
+% Inputs:
+%   image_folder - Path to folder containing TIFF images
+%   output_folder - Directory to save results
+%   animal_id - Unique animal identifier
+%   experiment_date - Date of recording (YY_MM_DD)
+%   session_id - Session/run identifier
+%
+% Outputs:
+%   whisker_raw_pad - Raw whisker pad motion signal
+%   whisker_smooth_pad - Smoothed whisker pad signal  
+%   whisker_raw_long - Raw long whisker motion signal
+%   whisker_smooth_long - Smoothed long whisker signal
 
+%% Initialize and load files
+% Get sorted list of TIFF files
+image_files = natsortfiles(dir(fullfile(image_folder, '*.tif')));
+
+% Check for empty directory
+if isempty(image_files)
+    error('No TIFF files found in directory: %s', image_folder);
+end
+
+%% Select ROIs interactively
+% Display middle frame for ROI selection
+mid_frame = floor(length(image_files)/2;
+sample_frame_path = fullfile(image_folder, image_files(mid_frame).name);
+tiff_obj = Tiff(sample_frame_path, 'r');
+frame_data = im2uint8(read(tiff_obj));
+
+% Create figure for ROI selection
+fig = figure('Name', 'Select Whisker ROIs', 'NumberTitle', 'off');
+
+% Select ROI for long whiskers
+subplot(1,2,1);
+imshow(frame_data);
+title('Select ROI for long whiskers');
+long_whisker_roi = drawrectangle('Color', 'r', 'LineWidth', 2);
+pause(0.1); % Ensure UI updates
+
+% Select ROI for whisker pad
+subplot(1,2,2); 
+imshow(frame_data);
+title('Select ROI for whisker pad');
+whisker_pad_roi = drawrectangle('Color', 'g', 'LineWidth', 2);
+
+disp('Adjust ROIs as needed, then press any key to continue');
+pause;
+close(fig);
+
+%% Calculate motion energy signals
+num_frames = length(image_files);
+whisker_long_signal = zeros(1, num_frames-2); % Initialize arrays
+whisker_pad_signal = zeros(1, num_frames-2);
+
+prev_long_frame = [];
+prev_pad_frame = [];
+
+for k = 3:num_frames
+    % Load current frame
+    current_path = fullfile(image_folder, image_files(k).name);
+    tiff_obj = Tiff(current_path, 'r');
+    current_frame = im2uint8(read(tiff_obj));
+    
+    % Crop ROIs
+    long_whisker_crop = imcrop(current_frame, long_whisker_roi.Position);
+    whisker_pad_crop = imcrop(current_frame, whisker_pad_roi.Position);
+    
+    % Calculate frame difference (motion energy)
+    if k == 3
+        prev_long_frame = long_whisker_crop;
+        prev_pad_frame = whisker_pad_crop;
+    else
+        whisker_long_signal(k-2) = sum(abs(long_whisker_crop - prev_long_frame), 'all');
+        whisker_pad_signal(k-2) = sum(abs(whisker_pad_crop - prev_pad_frame), 'all');
+        
+        prev_long_frame = long_whisker_crop;
+        prev_pad_frame = whisker_pad_crop;
+    end
+end
+
+%% Process signals
+% Smoothing function (replace with your implementation)
+smooth1d = @(x, w) conv(x, ones(1,w)/w, 'same');
+
+% Process long whisker signals
+whisker_raw_long = rescale(whisker_long_signal);
+whisker_smooth_long = real(rescale(smooth1d(whisker_long_signal, 5)));
+
+% Process whisker pad signals  
+whisker_raw_pad = rescale(whisker_pad_signal);
+whisker_smooth_pad = real(rescale(smooth1d(whisker_pad_signal, 5)));
+
+disp('Whisker analysis complete');
+end
