@@ -1,0 +1,202 @@
+function [sortedFiles, sortIndex, debugInfo] = natural_sort_files(fileList, numRegex, varargin)
+% NATURAL_SORT_FILES Alphanumeric/natural-order sort of filenames or directories
+%
+% Provides intuitive sorting of file/directory names by:
+% - Splitting path components and sorting each level separately
+% - Handling numeric portions according to their numeric value
+% - Supporting various options for path and extension handling
+%
+% Inputs:
+%   fileList   - Input filenames (struct from dir(), cellstr, char array, or string array)
+%   numRegex   - Optional regex pattern to match numbers (default: '\d+')
+%   varargin   - Optional parameters (see below)
+%
+% Outputs:
+%   sortedFiles - Input files sorted naturally
+%   sortIndex   - Indices that perform the sort: sortedFiles = fileList(sortIndex)
+%   debugInfo   - Debug information about sort steps
+%
+% Options:
+%   'rmdot'    - Remove "." and ".." directory entries
+%   'noext'    - Treat as directory names (no file extensions)
+%   'xpath'    - Sort by filename only (ignore path)
+%
+% Example:
+%   files = dir('*.txt');
+%   sortedFiles = natural_sort_files(files);
+
+    %% Input Validation
+    % Convert string inputs to char
+    varargin = cellfun(@convert_string_to_char, varargin, 'UniformOutput', false);
+    
+    % Check for duplicate options
+    options = {'rmdot', 'noext', 'xpath'};
+    optionCounts = cellfun(@(opt) sum(strcmpi(varargin, opt)), options);
+    if any(optionCounts > 1)
+        error('natural_sort_files:DuplicateOptions', ...
+              'Options can only be specified once');
+    end
+    
+    %% Process File Components
+    if isstruct(fileList)
+        % Handle dir() struct input
+        validate_dir_struct(fileList);
+        [filePaths, fileNames, fileExts] = process_dir_struct(fileList);
+    else
+        % Handle cell, char, or string input
+        [filePaths, fileNames, fileExts] = process_generic_input(fileList);
+    end
+    
+    %% Apply Options
+    [filePaths, fileNames, fileExts] = apply_options(filePaths, fileNames, fileExts, varargin);
+    
+    %% Prepare Components for Sorting
+    if any(strcmpi(varargin, 'xpath'))
+        % Sort by name only
+        componentsToSort = {fileNames};
+    else
+        % Split paths and sort each level
+        pathSeparator = get_path_separator();
+        pathComponents = split_paths(filePaths, pathSeparator);
+        componentsToSort = [pathComponents; {fileNames}];
+    end
+    
+    % Add extensions if needed
+    if ~isempty(fileExts) && ~any(strcmpi(varargin, 'noext'))
+        componentsToSort = [componentsToSort; {fileExts}];
+    end
+    
+    %% Perform Natural Sort
+    [sortIndex, debugInfo] = sort_components(componentsToSort, numRegex, varargin);
+    
+    %% Apply Sorting
+    sortedFiles = apply_sorting(fileList, sortIndex);
+end
+
+%% Helper Functions
+function arr = convert_string_to_char(arr)
+    % Convert scalar string to char
+    if isa(arr, 'string') && isscalar(arr)
+        arr = char(arr);
+    end
+end
+
+function validate_dir_struct(dirStruct)
+    % Validate dir() structure input
+    if ~isfield(dirStruct, 'name')
+        error('natural_sort_files:InvalidStruct', ...
+              'Input struct must have ''name'' field');
+    end
+    names = {dirStruct.name};
+    if ~all(cellfun(@ischar, names)) || ~all(cellfun(@(x) isrow(x), names))
+        error('natural_sort_files:InvalidNameField', ...
+              'All ''name'' fields must be character row vectors');
+    end
+end
+
+function [paths, names, exts] = process_dir_struct(dirStruct)
+    % Process dir() struct input
+    [paths, names, exts] = cellfun(@fileparts, {dirStruct.name}, 'UniformOutput', false);
+    if isfield(dirStruct, 'folder')
+        paths = {dirStruct.folder};
+        if ~all(cellfun(@ischar, paths)) || ~all(cellfun(@(x) isrow(x), paths))
+            error('natural_sort_files:InvalidFolderField', ...
+                  'All ''folder'' fields must be character row vectors');
+        end
+    end
+end
+
+function [paths, names, exts] = process_generic_input(fileList)
+    % Process cell, char, or string input
+    if ischar(fileList)
+        fileList = cellstr(fileList);
+    elseif isstring(fileList)
+        fileList = cellstr(fileList);
+    elseif ~iscell(fileList)
+        error('natural_sort_files:InvalidInputType', ...
+              'Input must be struct, cell, char, or string array');
+    end
+    
+    [paths, names, exts] = cellfun(@fileparts, fileList(:), 'UniformOutput', false);
+end
+
+function [paths, names, exts] = apply_options(paths, names, exts, options)
+    % Apply processing options
+    if any(strcmpi(options, 'rmdot'))
+        % Remove . and .. directories
+        isDot = strcmp(names, '.') | strcmp(names, '..');
+        paths(isDot) = [];
+        names(isDot) = [];
+        exts(isDot) = [];
+    end
+    
+    if any(strcmpi(options, 'noext'))
+        % Treat as directory names (no extensions)
+        names = strcat(names, exts);
+        exts = [];
+    end
+end
+
+function separator = get_path_separator()
+    % Get appropriate path separator for platform
+    if ispc()
+        separator = '[^/\\]+';  % Windows
+    else
+        separator = '[^/]+';    % Unix/Mac
+    end
+end
+
+function components = split_paths(paths, separator)
+    % Split paths into hierarchical components
+    splitPaths = regexp(paths, separator, 'match');
+    maxDepth = max(cellfun(@length, splitPaths));
+    components = cell(maxDepth, length(paths));
+    components(:) = {''};
+    
+    for i = 1:length(paths)
+        depth = length(splitPaths{i});
+        if depth > 0
+            components(1:depth, i) = splitPaths{i};
+        end
+    end
+end
+
+function [sortIndex, debugInfo] = sort_components(components, numRegex, options)
+    % Sort each component level from deepest to shallowest
+    numLevels = size(components, 1);
+    sortIndex = 1:size(components, 2);
+    debugInfo = cell(1, numLevels);
+    
+    for level = numLevels:-1:1
+        currentLevel = components(level, sortIndex);
+        
+        if nargout > 2
+            [~, levelSort, debugInfo{level}] = natsort(currentLevel, numRegex, options{:});
+        else
+            [~, levelSort] = natsort(currentLevel, numRegex, options{:});
+        end
+        
+        sortIndex = sortIndex(levelSort);
+    end
+    
+    sortIndex = sortIndex(:);
+end
+
+function sorted = apply_sorting(original, sortIndex)
+    % Apply sorting to original input
+    if ischar(original)
+        sorted = original(sortIndex, :);
+    else
+        if isstruct(original)
+            % Handle dir() struct
+            sorted = original(sortIndex);
+        else
+            % Handle cell/string array
+            try
+                sorted = original(sortIndex);
+            catch
+                sorted = original(sortIndex, :);
+            end
+        end
+    end
+end
