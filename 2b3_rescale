@@ -1,0 +1,73 @@
+function [normalized_data] = normalize_to_range(data, varargin)
+% NORMALIZE_TO_RANGE Linearly rescale data to specified output range
+%
+%   normalized_data = NORMALIZE_TO_RANGE(data) rescales input to [0, 1] range
+%   normalized_data = NORMALIZE_TO_RANGE(data, 'range', [a b]) custom output range
+%   normalized_data = NORMALIZE_TO_RANGE(data, 'inputlimits', [min max]) fixed input range
+%
+% Inputs:
+%   data          - Input data (numeric array)
+%   'range'       - Optional: Desired output range (default = [0 1])
+%   'inputlimits' - Optional: Predefined input min/max for consistent scaling
+%
+% Output:
+%   normalized_data - Data rescaled to specified range
+%
+% Features:
+%   - Handles matrices/arrays of any dimension
+%   - Preserves Inf/NaN values
+%   - Constant input protection
+%   - Empty input handling
+
+% Default parameters
+output_range = [0 1];
+input_limits = [];
+
+% Process optional arguments
+for i = 1:2:length(varargin)
+    param = lower(varargin{i});
+    value = varargin{i+1};
+    
+    switch param
+        case 'range'
+            validateattributes(value, {'numeric'}, {'vector', 'numel', 2});
+            output_range = sort(value);
+        case 'inputlimits'
+            validateattributes(value, {'numeric'}, {'vector', 'numel', 2});
+            input_limits = sort(value);
+        otherwise
+            error('Unsupported parameter: %s', varargin{i});
+    end
+end
+
+% Early return for empty input
+if isempty(data)
+    normalized_data = data;
+    return
+end
+
+% Calculate or use predefined limits
+if isempty(input_limits)
+    data_min = min(data(:));
+    data_max = max(data(:));
+else
+    data_min = input_limits(1);
+    data_max = input_limits(2);
+    data(data < data_min) = data_min;
+    data(data > data_max) = data_max;
+end
+
+% Handle constant input
+if data_max - data_min < eps
+    normalized_data = ones(size(data)) * mean(output_range);
+    return
+end
+
+% Core normalization calculation
+scale_factor = diff(output_range);
+normalized_data = (data - data_min) / (data_max - data_min) * scale_factor + output_range(1);
+
+% Preserve special values
+normalized_data(isinf(data)) = data(isinf(data));
+normalized_data(isnan(data)) = nan;
+end
