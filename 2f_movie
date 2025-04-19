@@ -1,0 +1,106 @@
+function create_behavior_movie(imageFolder, outputFolder, subjectID, sessionDate, sessionID, pupilData, whiskerData, stateData, timeVector)
+% CREATE_BEHAVIOR_MOVIE Generates a composite movie showing behavioral data
+%
+% Inputs:
+%   imageFolder    - Path to folder containing image sequence
+%   outputFolder   - Where to save the output movie
+%   subjectID      - Identifier for the subject
+%   sessionDate    - Date of recording (format: YY_MM_DD)
+%   sessionID      - Session identifier
+%   pupilData      - Vector of pupil measurements
+%   whiskerData    - Vector of whisker measurements
+%   stateData      - Vector of behavioral state data
+%   timeVector     - Time points for synchronization
+%
+% Output:
+%   Saves an AVI movie file showing all behavioral data synchronized with video
+
+%% Initialize and select ROI
+% Get sorted list of image files
+imageFiles = natsortfiles(dir(fullfile(imageFolder, '*.tif')));
+
+% Display sample frame for ROI selection
+sampleFramePath = fullfile(imageFolder, imageFiles(min(100,length(imageFiles))).name);
+frameData = im2uint8(imread(sampleFramePath));
+
+roiFig = figure('Name', 'Select Movie ROI', 'NumberTitle', 'off');
+imshow(frameData);
+title('Select region of interest for movie');
+roiRect = drawrectangle('Color', 'r', 'LineWidth', 2);
+pause(0.1); % Ensure UI updates
+disp('Adjust ROI as needed, then press any key to continue');
+pause;
+roiPosition = roiRect.Position;
+close(roiFig);
+
+%% Set up video output
+videoDir = fullfile(outputFolder, 'behavior_movies');
+if ~isfolder(videoDir)
+    mkdir(videoDir);
+end
+
+outputFile = fullfile(videoDir, ...
+    sprintf('%s_%s_%s_behavior.avi', subjectID, sessionDate, sessionID));
+
+videoObj = VideoWriter(outputFile, 'Motion JPEG AVI');
+videoObj.FrameRate = 10;
+open(videoObj);
+
+%% Create composite figure
+mainFig = figure('Position', [0 0 1200 900], 'Visible', 'off');
+
+for frameIdx = 1:min(length(imageFiles)-2, length(timeVector))
+    % Load and crop current frame
+    framePath = fullfile(imageFolder, imageFiles(frameIdx+2).name);
+    frameData = im2uint8(imread(framePath));
+    croppedFrame = imcrop(frameData, roiPosition);
+    
+    % Update composite plot
+    clf(mainFig);
+    
+    % 1. Video subplot
+    subplot(2,2,1);
+    imshow(croppedFrame);
+    title(sprintf('%s - %s - %s', ...
+        strrep(subjectID, '_', '-'), sessionDate, sessionID));
+    
+    % 2. Whisker data subplot
+    subplot(2,2,2);
+    plot(timeVector, whiskerData, 'b', 'LineWidth', 1.5);
+    xline(timeVector(frameIdx), 'Color', 'k', 'LineWidth', 1);
+    xlim([timeVector(1) timeVector(end)]);
+    title('Whisker Movement');
+    xlabel('Time (s)');
+    ylabel('Speed (a.u.)');
+    grid on;
+    
+    % 3. Pupil data subplot
+    subplot(2,2,3);
+    plot(timeVector, pupilData, 'r', 'LineWidth', 1.5);
+    xline(timeVector(frameIdx), 'Color', 'k', 'LineWidth', 1);
+    xlim([timeVector(1) timeVector(end)]);
+    title('Pupil Dilation');
+    xlabel('Time (s)');
+    ylabel('Diameter (a.u.)');
+    grid on;
+    
+    % 4. Behavioral state subplot
+    subplot(2,2,4);
+    stairs(timeVector, stateData, 'm', 'LineWidth', 1.5);
+    xline(timeVector(frameIdx), 'Color', 'k', 'LineWidth', 1);
+    ylim([0 2]);
+    xlim([timeVector(1) timeVector(end)]);
+    title('Behavioral State');
+    xlabel('Time (s)');
+    ylabel('State (0/1)');
+    grid on;
+    
+    % Capture and write frame
+    currentFrame = getframe(mainFig);
+    writeVideo(videoObj, currentFrame);
+end
+
+close(videoObj);
+close(mainFig);
+fprintf('Movie saved to: %s\n', outputFile);
+end
