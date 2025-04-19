@@ -16,7 +16,7 @@ The pipeline is modular, enabling users to run only the steps they need or custo
 
 ---
 
-## 📁 Repository Structure
+##  
 
 The repository is organized into folders by function. Each folder contains one or more MATLAB scripts relevant to a specific stage of the analysis.
 
