@@ -1,1 +1,242 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Multimodal Data Processing Pipeline      %%
+%% Includes:                                %%
+%% - ROI signal analysis                    %%
+%% - Behavioral data processing             %%
+%% - Polynomial detrending                  %%
+%% - Visualization                          %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+%% Initialize
+% Let user select the data file
+[data_file, data_path] = uigetfile('*.mat', 'Select processed data file');
+if isequal(data_file, 0)
+    error('No file selected - exiting script');
+end
+
+% Create output directory
+output_dir = fullfile(data_path, 'Analysis_Output');
+if ~exist(output_dir, 'dir')
+    mkdir(output_dir);
+end
+
+%% Load Data
+try
+    loaded_data = load(fullfile(data_path, data_file));
+    fprintf('Successfully loaded data file: %s\n', data_file);
+catch ME
+    error('Failed to load data file: %s', ME.message);
+end
+
+%% Check Available Data Streams
+available_streams = struct();
+available_streams.roi_even = isfield(loaded_data, 'ROI_Even_Analysis');
+available_streams.roi_odd = isfield(loaded_data, 'ROI_Odd_Analysis');
+available_streams.whisker = isfield(loaded_data, 'whisker_data');
+available_streams.pupil = isfield(loaded_data, 'pupil_data');
+available_streams.accel = any(isfield(loaded_data, {'acc_x', 'acc_y', 'acc_z'}));
+
+%% User Selection of Data Streams
+selected_streams = struct();
+
+% ROI Even selection
+if available_streams.roi_even
+    selected_streams.roi_even = select_data_columns(...
+        loaded_data.ROI_Even_Analysis, 'ROI Even');
+end
+
+% ROI Odd selection
+if available_streams.roi_odd
+    selected_streams.roi_odd = select_data_columns(...
+        loaded_data.ROI_Odd_Analysis, 'ROI Odd');
+end
+
+% Behavioral data selection
+behavioral_streams = {'whisker', 'pupil', 'accel'};
+for stream = behavioral_streams
+    stream_name = stream{1};
+    if available_streams.(stream_name)
+        if input(sprintf('Process %s data? (1=Yes, 0=No): ', stream_name))
+            selected_streams.(stream_name) = true;
+        end
+    end
+end
+
+%% Process Data
+% Create time vector
+sampling_rate = 9.64; % Hz
+max_duration = 300; % seconds
+num_samples = floor(max_duration * sampling_rate);
+time_vector = linspace(0, max_duration, num_samples)';
+
+% Initialize processed data structure
+processed = struct();
+
+% Process ROI data
+if isfield(selected_streams, 'roi_even')
+    processed.roi_even = process_roi_data(...
+        loaded_data.ROI_Even_Analysis(:, selected_streams.roi_even), ...
+        time_vector);
+end
+
+if isfield(selected_streams, 'roi_odd')
+    processed.roi_odd = process_roi_data(...
+        loaded_data.ROI_Odd_Analysis(:, selected_streams.roi_odd), ...
+        time_vector);
+end
+
+% Process behavioral data
+if isfield(selected_streams, 'whisker')
+    processed.whisker = interpolate_data(...
+        loaded_data.whisker_data, time_vector);
+end
+
+if isfield(selected_streams, 'pupil')
+    processed.pupil = interpolate_data(...
+        loaded_data.pupil_data, time_vector);
+end
+
+if isfield(selected_streams, 'accel')
+    accel_components = {'x', 'y', 'z'};
+    for comp = accel_components
+        field_name = ['acc_' comp{1}];
+        if isfield(loaded_data, field_name)
+            processed.(field_name) = interpolate_data(...
+                loaded_data.(field_name), time_vector);
+        end
+    end
+end
+
+%% Save Processed Data
+save(fullfile(output_dir, 'processed_data.mat'), '-struct', 'processed');
+fprintf('Saved processed data to: %s\n', fullfile(output_dir, 'processed_data.mat'));
+
+%% Visualize Results
+plot_multimodal_data(processed, time_vector, output_dir);
+
+%% Helper Functions
+function selected = select_data_columns(data, data_name)
+    % Interactive column selection for data
+    num_columns = size(data, 2);
+    fprintf('%s data has %d columns\n', data_name, num_columns);
+    
+    while true
+        selected = input(sprintf('Enter column indices to analyze (1-%d): ', num_columns));
+        if isempty(selected)
+            fprintf('No columns selected for %s\n', data_name);
+            break;
+        elseif all(selected >= 1 & selected <= num_columns)
+            break;
+        else
+            fprintf('Invalid selection. Please enter values between 1-%d\n', num_columns);
+        end
+    end
+end
+
+function processed = process_roi_data(data, time_vector)
+    % Process ROI data with interpolation and detrending
+    if isempty(data)
+        processed = [];
+        return;
+    end
+    
+    % Interpolate to common time vector
+    original_time = linspace(0, time_vector(end), size(data,1));
+    processed = zeros(length(time_vector), size(data,2));
+    
+    for col = 1:size(data,2)
+        processed(:,col) = interp1(original_time, data(:,col), time_vector, 'linear', 'extrap');
+    end
+    
+    % Linear detrending
+    processed = detrend(processed, 'linear');
+end
+
+function interpolated = interpolate_data(data, time_vector)
+    % Interpolate data to common time vector
+    if isempty(data)
+        interpolated = [];
+        return;
+    end
+    
+    original_time = linspace(0, time_vector(end), length(data));
+    interpolated = interp1(original_time, data(:), time_vector, 'linear', 'extrap');
+end
+
+function plot_multimodal_data(data, time_vector, save_dir)
+    % Create visualization of all processed data streams
+    
+    % Determine which streams to plot
+    streams = fieldnames(data);
+    num_streams = length(streams);
+    if num_streams == 0
+        warning('No data streams available for plotting');
+        return;
+    end
+    
+    % Create figure
+    fig = figure('Units', 'normalized', 'Position', [0.1, 0.1, 0.8, 0.8]);
+    
+    % Plot each stream
+    for i = 1:num_streams
+        stream = streams{i};
+        subplot(num_streams, 1, i);
+        
+        % Handle different data types
+        if contains(stream, 'roi')
+            % ROI data (multiple traces possible)
+            plot_roi_data(data.(stream), time_vector, stream);
+        elseif contains(stream, 'acc_')
+            % Accelerometer data
+            plot(time_vector, data.(stream), 'LineWidth', 0.5);
+            ylabel(sprintf('Acc %s (g)', upper(stream(end))));
+        else
+            % Other behavioral data
+            plot(time_vector, data.(stream));
+            ylabel(strrep(stream, '_', ' '));
+        end
+        
+        % Only show xlabel on bottom plot
+        if i ~= num_streams
+            set(gca, 'XTickLabel', []);
+        else
+            xlabel('Time (s)');
+        end
+    end
+    
+    % Save figures
+    saveas(fig, fullfile(save_dir, 'multimodal_plot.png'));
+    saveas(fig, fullfile(save_dir, 'multimodal_plot.fig'));
+    close(fig);
+end
+
+function plot_roi_data(roi_data, time_vector, roi_name)
+    % Specialized plotting for ROI data
+    if isempty(roi_data)
+        return;
+    end
+    
+    num_rois = size(roi_data, 2);
+    colors = lines(num_rois);
+    
+    hold on;
+    for i = 1:num_rois
+        plot(time_vector, roi_data(:,i), 'Color', colors(i,:));
+    end
+    hold off;
+    
+    ylabel(sprintf('%s (ΔF/F)', strrep(roi_name, '_', ' ')));
+    
+    % Add legend if multiple ROIs
+    if num_rois > 1
+        legend(arrayfun(@(x) sprintf('ROI %d', x), 1:num_rois, 'UniformOutput', false));
+        
+        % Calculate correlations for odd ROIs if exactly 2
+        if contains(roi_name, 'odd') && num_rois == 2
+            corr_mat = corrcoef(roi_data(:,1), roi_data(:,2));
+            corr_val = corr_mat(1,2);
+            text(0.95, 0.9, sprintf('r = %.2f', corr_val), ...
+                'Units', 'normalized', 'HorizontalAlignment', 'right');
+        end
+    end
+end
