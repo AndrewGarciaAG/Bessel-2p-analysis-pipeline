@@ -1,1 +1,119 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% MATLAB Script for Image Stack Processing  %%
+%%     Author: [Your Name or GitHub Handle]  %%
+%%                 Date: [Date]              %%
+%% Description: Processes 3D image stacks by:%%
+%%       - Splitting into even/odd frames    %%
+%%       - Creating various projections      %%
+%%       - Saving results as image files     %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+%% Step 1: User Configuration
+inputPath = '/path/to/your/input_stack.tif';  % User should update this
+outputDir = '/path/to/output_directory';      % User should update this
+
+% Supported projection types
+availableProjections = {'max', 'mean', 'sum', 'min', 'median', 'std', 'var', 'top', 'bottom'};
+projectionType = 'max';  % Default projection type
+
+%% Step 2: Initialize Processing
+% Create output directory if needed
+if ~exist(outputDir, 'dir')
+    mkdir(outputDir);
+    fprintf('Created output directory: %s\n', outputDir);
+end
+
+%% Step 3: Load Image Stack
+fprintf('Loading TIFF stack...\n');
+try
+    % Get stack metadata
+    metadata = imfinfo(inputPath);
+    numFrames = numel(metadata);
+    [height, width] = deal(metadata(1).Height, metadata(1).Width);
+    
+    % Initialize and load stack
+    stack = zeros(height, width, numFrames, 'uint16');
+    for i = 1:numFrames
+        stack(:, :, i) = imread(inputPath, i);
+    end
+    fprintf('Loaded stack: %dx%dx%d\n', height, width, numFrames);
+catch ME
+    error('Error loading image stack: %s', ME.message);
+end
+
+%% Step 4: Split Frames
+fprintf('Splitting into even/odd frames...\n');
+evenFrames = stack(:, :, 2:2:end);
+oddFrames = stack(:, :, 1:2:end);
+
+fprintf('Even frames: %d\nOdd frames: %d\n', ...
+    size(evenFrames, 3), size(oddFrames, 3));
+
+%% Step 5: Create Projections
+fprintf('Creating "%s" projections...\n', projectionType);
+projectionEven = createProjection(evenFrames, projectionType);
+projectionOdd = createProjection(oddFrames, projectionType);
+
+%% Step 6: Visualize Results
+figure('Name', 'Projection Results', 'Position', [100 100 1200 500]);
+
+subplot(1,2,1);
+imshow(projectionEven, []);
+title(sprintf('Even Frames (%s)', projectionType));
+colorbar;
+
+subplot(1,2,2);
+imshow(projectionOdd, []);
+title(sprintf('Odd Frames (%s)', projectionType));
+colorbar;
+
+%% Step 7: Save Results
+filePrefix = @(type) fullfile(outputDir, sprintf('%s_%s', projectionType, type));
+
+% Save even projections
+imwrite(projectionEven, filePrefix('even.tif'));
+imwrite(mat2gray(projectionEven), filePrefix('even.png'));
+
+% Save odd projections
+imwrite(projectionOdd, filePrefix('odd.tif'));
+imwrite(mat2gray(projectionOdd), filePrefix('odd.png'));
+
+fprintf('Results saved to:\n%s\n', outputDir);
+
+%% Projection Creation Function
+function projection = createProjection(stack, type)
+    % CREATEPROJECTION Creates different types of image projections
+    % Inputs:
+    %   stack - 3D image stack
+    %   type - projection type (string)
+    
+    switch lower(type)
+        case 'max'
+            projection = max(stack, [], 3);
+        case 'mean'
+            projection = mean(stack, 3);
+        case 'sum'
+            projection = sum(stack, 3);
+        case 'min'
+            projection = min(stack, [], 3);
+        case 'median'
+            projection = median(stack, 3);
+        case 'std'
+            projection = std(double(stack), 0, 3);
+        case 'var'
+            projection = var(double(stack), 0, 3);
+        case 'top'
+            projection = stack(:, :, 1);
+        case 'bottom'
+            projection = stack(:, :, end);
+        otherwise
+            error('Supported projections: max, mean, sum, min, median, std, var, top, bottom');
+    end
+    
+    % Convert to appropriate output type
+    if ismember(type, {'std', 'var'})
+        projection = single(projection);
+    else
+        projection = cast(projection, class(stack));
+    end
+end
