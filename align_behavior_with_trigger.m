@@ -1,0 +1,1 @@
+% This script aligns behavioral trigger data to imaging frames using the trigger timestamps.
