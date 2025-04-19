@@ -1,0 +1,74 @@
+function [triggerSignal] = detect_synchronization_signal(imageFolder, varargin)
+% DETECT_SYNCHRONIZATION_SIGNAL Identifies synchronization pulses from image sequence
+%
+% Inputs:
+%   imageFolder - Path to folder containing TIFF images
+%   'FrameNumber' - Optional: Frame number for ROI selection (default: 500)
+%   'ThresholdHigh' - Optional: High threshold for pulse detection (default: 254)
+%   'ThresholdLow' - Optional: Low threshold for pulse detection (default: 245)
+%
+% Output:
+%   triggerSignal - Binary synchronization signal (1 = pulse, 0 = no pulse)
+
+% Set default parameters
+params = struct(...
+    'FrameNumber', 500, ...
+    'ThresholdHigh', 254, ...
+    'ThresholdLow', 245);
+
+% Parse optional parameters
+for i = 1:2:length(varargin)
+    if isfield(params, varargin{i})
+        params.(varargin{i}) = varargin{i+1};
+    else
+        error('Unknown parameter: %s', varargin{i});
+    end
+end
+
+% Get sorted image files
+imageFiles = natsortfiles(dir(fullfile(imageFolder, '*.tif')));
+
+%% Select ROI for signal detection
+sampleFramePath = fullfile(imageFolder, imageFiles(min(params.FrameNumber, length(imageFiles))).name);
+tiffObj = Tiff(sampleFramePath, 'r');
+frameData = im2uint8(read(tiffObj));
+
+fig = figure('Name', 'Select Signal ROI', 'NumberTitle', 'off');
+imshow(frameData);
+title('Draw rectangle around synchronization signal');
+signalROI = drawrectangle('Color', 'r', 'LineWidth', 2);
+pause(0.1); % Ensure UI updates
+disp('Adjust ROI as needed, then press any key to continue');
+pause;
+close(fig);
+
+signalMask = createMask(signalROI);
+
+%% Process image sequence
+nFrames = length(imageFiles);
+signalIntensity = zeros(1, nFrames-2);
+
+for k = 3:nFrames
+    framePath = fullfile(imageFolder, imageFiles(k).name);
+    tiffObj = Tiff(framePath, 'r');
+    frameData = im2uint8(read(tiffObj));
+    
+    if max(frameData(:)) > 15 % Skip black frames
+        maskedFrame = frameData;
+        maskedFrame(~signalMask) = 0;
+        signalPixels = maskedFrame(maskedFrame >= 1);
+        signalIntensity(k-2) = max(signalPixels);
+    end
+end
+
+%% Detect trigger pulses
+triggerSignal = zeros(size(signalIntensity));
+triggerSignal(signalIntensity > params.ThresholdHigh) = 1;
+triggerSignal(signalIntensity <= params.ThresholdLow) = 0;
+
+% Handle intermediate values (between thresholds)
+transitionFrames = (signalIntensity > params.ThresholdLow) & (signalIntensity <= params.ThresholdHigh);
+triggerSignal(transitionFrames) = NaN; % Mark as uncertain
+
+disp('Synchronization signal detection complete');
+end
