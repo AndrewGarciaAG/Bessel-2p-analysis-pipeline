@@ -1,0 +1,96 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Data Processing and Aggregation Script   %%
+%% Last Updated: MM/DD/YY                  %%
+%% For behavioral and ROI analysis          %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Clear workspace
+clear; clc;
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% User Configuration - Modify These Paths  %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Define input paths (user should modify these)
+behavior_mat_path = '/path/to/behavioral/data.mat';  % Behavioral .mat file
+roi_even_csv_path = '/path/to/even_roi_analysis.csv'; % Even ROI CSV
+roi_odd_csv_path = '/path/to/odd_roi_analysis.csv';   % Odd ROI CSV
+output_folder = '/path/to/processed_data_output';      % Output directory
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Initialize Processing                    %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Create output directory if it doesn't exist
+if ~exist(output_folder, 'dir')
+    mkdir(output_folder);
+    fprintf('Created output directory: %s\n', output_folder);
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Load and Process Behavioral Data        %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+try
+    % Load behavioral data
+    behavior_data = load(behavior_mat_path);
+    
+    % Extract pupil data
+    pupil = struct();
+    pupil.raw = behavior_data.pupil.pupil_raw;
+    pupil.smooth = behavior_data.pupil.pupil_smooth;
+    
+    % Extract whisker data
+    whisker = struct();
+    whisker.bins = behavior_data.whisker.whisker_bins;
+    whisker.raw_long = behavior_data.whisker.whisker_raw_long;
+    whisker.raw_pad = behavior_data.whisker.whisker_raw_pad;
+    whisker.smooth_long = behavior_data.whisker.whisker_smooth_long;
+    whisker.smooth_pad = behavior_data.whisker.whisker_smooth_pad;
+    
+    % Extract accelerometer data
+    accelerometer = struct();
+    accelerometer.x = behavior_data.info.accX;
+    accelerometer.y = behavior_data.info.accY;
+    accelerometer.z = behavior_data.info.accZ;
+    
+    fprintf('Successfully loaded behavioral data\n');
+catch ME
+    error('Error loading behavioral data: %s', ME.message);
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Load ROI Analysis Data                  %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+try
+    % Load ROI analysis CSVs
+    roi_even = readmatrix(roi_even_csv_path);
+    roi_odd = readmatrix(roi_odd_csv_path);
+    
+    fprintf('Successfully loaded ROI analysis data\n');
+catch ME
+    error('Error loading ROI data: %s', ME.message);
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Save Aggregated Data                    %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+output_file = fullfile(output_folder, 'aggregated_analysis_data.mat');
+
+save(output_file, ...
+    'pupil', ...
+    'whisker', ...
+    'accelerometer', ...
+    'roi_even', ...
+    'roi_odd');
+
+fprintf('Data successfully aggregated and saved to:\n%s\n', output_file);
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Optional: Add Verification Steps        %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Display summary of loaded data
+fprintf('\nData Summary:\n');
+fprintf('------------\n');
+fprintf('Pupil data points: %d\n', length(pupil.raw));
+fprintf('Whisker data points: %d\n', length(whisker.bins));
+fprintf('Accelerometer data points: %d\n', length(accelerometer.x));
+fprintf('Even ROI measurements: %d\n', size(roi_even, 1));
+fprintf('Odd ROI measurements: %d\n', size(roi_odd, 1));
